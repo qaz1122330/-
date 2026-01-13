@@ -1,0 +1,694 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>工业仪表盘智能读数系统</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+    <script src="https://cdn.jsdelivr.net/npm/socket.io-client@4/dist/socket.io.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        
+        body {
+            font-family: 'Segoe UI', Arial, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 20px;
+        }
+        
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+            background: rgba(255, 255, 255, 0.95);
+            border-radius: 15px;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+            overflow: hidden;
+        }
+        
+        .header {
+            background: linear-gradient(90deg, #2c3e50, #4a6491);
+            color: white;
+            padding: 30px;
+            text-align: center;
+        }
+        
+        .header h1 { 
+            font-size: 2.5rem; 
+            margin-bottom: 10px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 15px;
+        }
+        
+        .header p { 
+            opacity: 0.9; 
+            font-size: 1.1rem;
+            max-width: 800px;
+            margin: 0 auto;
+        }
+        
+        .status-badge {
+            display: inline-block;
+            padding: 5px 15px;
+            border-radius: 20px;
+            font-size: 0.9rem;
+            font-weight: 600;
+            margin-left: 10px;
+        }
+        
+        .status-running { background: #10b981; color: white; }
+        .status-warning { background: #f59e0b; color: white; }
+        .status-danger { background: #ef4444; color: white; }
+        
+        .main-content {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 30px;
+            padding: 30px;
+        }
+        
+        @media (max-width: 1024px) {
+            .main-content {
+                grid-template-columns: 1fr;
+            }
+        }
+        
+        .video-section, .data-section {
+            background: white;
+            border-radius: 10px;
+            padding: 25px;
+            box-shadow: 0 5px 15px rgba(0,0,0,0.1);
+        }
+        
+        .section-title {
+            font-size: 1.5rem;
+            color: #374151;
+            margin-bottom: 20px;
+            padding-bottom: 10px;
+            border-bottom: 2px solid #e5e7eb;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+        
+        .video-container {
+            width: 100%;
+            height: 400px;
+            background: #1f2937;
+            border-radius: 8px;
+            overflow: hidden;
+            margin-bottom: 20px;
+            position: relative;
+        }
+        
+        #video-feed {
+            width: 100%;
+            height: 100%;
+            object-fit: contain;
+        }
+        
+        .control-buttons {
+            display: flex;
+            gap: 15px;
+            margin-top: 20px;
+        }
+        
+        .btn {
+            padding: 12px 25px;
+            border: none;
+            border-radius: 8px;
+            font-size: 1rem;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+        
+        .btn-primary {
+            background: linear-gradient(90deg, #4f46e5, #7c3aed);
+            color: white;
+        }
+        
+        .btn-primary:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 5px 15px rgba(79, 70, 229, 0.4);
+        }
+        
+        .btn-secondary {
+            background: #6b7280;
+            color: white;
+        }
+        
+        .meters-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+            gap: 20px;
+            margin-top: 20px;
+        }
+        
+        .meter-card {
+            background: #f9fafb;
+            border-radius: 10px;
+            padding: 20px;
+            border-left: 4px solid #3b82f6;
+        }
+        
+        .meter-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 15px;
+        }
+        
+        .meter-name {
+            font-size: 1.2rem;
+            font-weight: 600;
+            color: #374151;
+        }
+        
+        .meter-value {
+            font-size: 2rem;
+            font-weight: 700;
+            text-align: center;
+            margin: 15px 0;
+            color: #1f2937;
+        }
+        
+        .meter-gauge {
+            height: 20px;
+            background: #e5e7eb;
+            border-radius: 10px;
+            margin: 20px 0;
+            overflow: hidden;
+        }
+        
+        .gauge-fill {
+            height: 100%;
+            border-radius: 10px;
+            transition: width 0.5s;
+        }
+        
+        .fill-normal { background: #10b981; }
+        .fill-warning { background: #f59e0b; }
+        .fill-danger { background: #ef4444; }
+        
+        .chart-container {
+            height: 300px;
+            margin-top: 30px;
+        }
+        
+        .system-info {
+            grid-column: 1 / -1;
+            background: white;
+            border-radius: 10px;
+            padding: 25px;
+            margin-top: 30px;
+        }
+        
+        .info-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+            gap: 20px;
+            margin-top: 20px;
+        }
+        
+        .info-card {
+            background: #f8fafc;
+            padding: 20px;
+            border-radius: 8px;
+            border-left: 4px solid #8b5cf6;
+        }
+        
+        .info-label {
+            font-size: 0.9rem;
+            color: #6b7280;
+            margin-bottom: 5px;
+        }
+        
+        .info-value {
+            font-size: 1.5rem;
+            font-weight: 600;
+            color: #1f2937;
+        }
+        
+        .alert-box {
+            padding: 15px;
+            border-radius: 8px;
+            margin: 20px 0;
+            display: none;
+            animation: fadeIn 0.3s;
+        }
+        
+        .alert-warning {
+            background: #fef3c7;
+            border-left: 4px solid #f59e0b;
+            color: #92400e;
+        }
+        
+        .alert-danger {
+            background: #fee2e2;
+            border-left: 4px solid #ef4444;
+            color: #991b1b;
+        }
+        
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(-10px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+        
+        .connection-status {
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            padding: 10px 20px;
+            border-radius: 20px;
+            font-weight: 600;
+            z-index: 1000;
+        }
+        
+        .connected { background: #10b981; color: white; }
+        .disconnected { background: #ef4444; color: white; }
+    </style>
+</head>
+<body>
+    <div class="connection-status disconnected" id="connectionStatus">
+        🔌 连接中...
+    </div>
+    
+    <div class="container">
+        <div class="header">
+            <h1>🏭 工业仪表盘智能读数系统</h1>
+            <p>基于计算机视觉的自动化监测解决方案 • 实时读数 • 智能预警 • 数据可视化</p>
+        </div>
+        
+        <div class="main-content">
+            <!-- 视频监控区域 -->
+            <div class="video-section">
+                <h2 class="section-title">
+                    <span>📹 实时监控画面</span>
+                    <span class="status-badge status-running" id="streamStatus">监控中</span>
+                </h2>
+                
+                <div class="video-container">
+                    <img id="video-feed" src="" alt="实时视频流">
+                </div>
+                
+                <div class="control-buttons">
+                    <button class="btn btn-primary" onclick="startMonitoring()">
+                        ▶️ 开始监控
+                    </button>
+                    <button class="btn btn-secondary" onclick="stopMonitoring()">
+                        ⏹️ 停止监控
+                    </button>
+                </div>
+                
+                <div id="alertBox" class="alert-box" style="display: none;">
+                    <!-- 预警信息将在这里显示 -->
+                </div>
+            </div>
+            
+            <!-- 数据展示区域 -->
+            <div class="data-section">
+                <h2 class="section-title">📊 仪表读数</h2>
+                
+                <div class="meters-grid" id="metersGrid">
+                    <!-- 仪表卡片将通过JavaScript动态生成 -->
+                    <div class="meter-card">
+                        <div class="meter-header">
+                            <span class="meter-name">Meter-1</span>
+                            <span class="status-badge status-normal">正常</span>
+                        </div>
+                        <div class="meter-value">--.--</div>
+                        <div class="meter-gauge">
+                            <div class="gauge-fill fill-normal" style="width: 0%"></div>
+                        </div>
+                        <div style="display: flex; justify-content: space-between;">
+                            <span>0</span>
+                            <span>50</span>
+                            <span>100</span>
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="chart-container">
+                    <canvas id="readingChart"></canvas>
+                </div>
+            </div>
+            
+            <!-- 系统信息 -->
+            <div class="system-info">
+                <h2 class="section-title">⚙️ 系统信息</h2>
+                
+                <div class="info-grid" id="systemInfo">
+                    <!-- 系统信息将通过JavaScript动态更新 -->
+                    <div class="info-card">
+                        <div class="info-label">系统状态</div>
+                        <div class="info-value" id="systemStatus">运行中</div>
+                    </div>
+                    
+                    <div class="info-card">
+                        <div class="info-label">检测仪表数</div>
+                        <div class="info-value" id="metersCount">2</div>
+                    </div>
+                    
+                    <div class="info-card">
+                        <div class="info-label">处理帧率 (FPS)</div>
+                        <div class="info-value" id="processingFPS">5.0</div>
+                    </div>
+                    
+                    <div class="info-card">
+                        <div class="info-label">最后更新</div>
+                        <div class="info-value" id="lastUpdate">--:--:--</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <script>
+        // 全局变量
+        let socket = null;
+        let isMonitoring = false;
+        let chart = null;
+        let readingsData = [];
+        const maxDataPoints = 20;
+        
+        // 初始化Socket连接
+        function initSocket() {
+            const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+            const host = window.location.host;
+            
+            socket = io.connect(`${protocol}//${host}`, {
+                transports: ['websocket'],
+                reconnection: true,
+                reconnectionDelay: 1000,
+                reconnectionDelayMax: 5000
+            });
+            
+            // 连接成功
+            socket.on('connect', function() {
+                console.log('✅ WebSocket连接成功');
+                updateConnectionStatus(true);
+            });
+            
+            // 连接断开
+            socket.on('disconnect', function() {
+                console.log('❌ WebSocket连接断开');
+                updateConnectionStatus(false);
+                isMonitoring = false;
+            });
+            
+            // 接收仪表数据
+            socket.on('meter_data', function(data) {
+                console.log('收到仪表数据:', data);
+                updateVideoFeed(data.frame);
+                updateMetersDisplay(data.readings || []);
+                updateSystemInfo(data);
+                updateChart(data.readings || []);
+                checkAlerts(data.readings || []);
+            });
+            
+            // 连接响应
+            socket.on('connection_response', function(data) {
+                console.log('服务器响应:', data);
+            });
+        }
+        
+        // 更新连接状态显示
+        function updateConnectionStatus(connected) {
+            const statusEl = document.getElementById('connectionStatus');
+            if (connected) {
+                statusEl.textContent = '✅ 已连接';
+                statusEl.className = 'connection-status connected';
+            } else {
+                statusEl.textContent = '❌ 连接断开';
+                statusEl.className = 'connection-status disconnected';
+            }
+        }
+        
+        // 更新视频流显示
+        function updateVideoFeed(frameBase64) {
+            const videoEl = document.getElementById('video-feed');
+            if (frameBase64) {
+                videoEl.src = 'data:image/jpeg;base64,' + frameBase64;
+            }
+        }
+        
+        // 开始监控
+        function startMonitoring() {
+            if (!socket || !socket.connected) {
+                alert('请先建立WebSocket连接');
+                return;
+            }
+            
+            if (!isMonitoring) {
+                socket.emit('start_monitoring');
+                isMonitoring = true;
+                document.getElementById('streamStatus').textContent = '监控中';
+                document.getElementById('streamStatus').className = 'status-badge status-running';
+                console.log('开始监控仪表...');
+            }
+        }
+        
+        // 停止监控
+        function stopMonitoring() {
+            isMonitoring = false;
+            document.getElementById('streamStatus').textContent = '已停止';
+            document.getElementById('streamStatus').className = 'status-badge status-danger';
+            console.log('停止监控仪表...');
+            
+            // 清空视频流
+            document.getElementById('video-feed').src = '';
+        }
+        
+        // 更新仪表显示
+        function updateMetersDisplay(readings) {
+            const gridEl = document.getElementById('metersGrid');
+            
+            // 如果没有数据，显示默认状态
+            if (!readings || readings.length === 0) {
+                gridEl.innerHTML = `
+                    <div class="meter-card">
+                        <div class="meter-header">
+                            <span class="meter-name">等待数据...</span>
+                            <span class="status-badge status-warning">等待</span>
+                        </div>
+                        <div class="meter-value">--.--</div>
+                        <div class="meter-gauge">
+                            <div class="gauge-fill fill-warning" style="width: 50%"></div>
+                        </div>
+                        <div style="display: flex; justify-content: space-between;">
+                            <span>0</span>
+                            <span>50</span>
+                            <span>100</span>
+                        </div>
+                    </div>
+                `;
+                return;
+            }
+            
+            // 动态生成仪表卡片
+            let html = '';
+            readings.forEach((meter, index) => {
+                const percentage = (meter.value / 100) * 100;
+                const statusClass = `status-${meter.status || 'normal'}`;
+                const fillClass = `fill-${meter.status || 'normal'}`;
+                const statusText = {
+                    'normal': '正常',
+                    'warning': '警告',
+                    'danger': '危险'
+                }[meter.status] || '正常';
+                
+                html += `
+                    <div class="meter-card">
+                        <div class="meter-header">
+                            <span class="meter-name">仪表-${index + 1}</span>
+                            <span class="status-badge ${statusClass}">${statusText}</span>
+                        </div>
+                        <div class="meter-value">${meter.value.toFixed(2)}</div>
+                        <div class="meter-gauge">
+                            <div class="gauge-fill ${fillClass}" style="width: ${percentage}%"></div>
+                        </div>
+                        <div style="display: flex; justify-content: space-between;">
+                            <span>0</span>
+                            <span>50</span>
+                            <span>100</span>
+                        </div>
+                        <div style="margin-top: 10px; font-size: 0.9rem; color: #6b7280;">
+                            角度: ${meter.angle || 0}° | 置信度: ${((meter.confidence || 0) * 100).toFixed(1)}%
+                        </div>
+                    </div>
+                `;
+            });
+            
+            gridEl.innerHTML = html;
+        }
+        
+        // 更新系统信息
+        function updateSystemInfo(data) {
+            document.getElementById('systemStatus').textContent = '运行中';
+            document.getElementById('metersCount').textContent = data.readings?.length || 0;
+            document.getElementById('lastUpdate').textContent = data.timestamp || '--:--:--';
+            
+            // 更新FPS（简单计算）
+            if (!window.lastUpdateTime) window.lastUpdateTime = Date.now();
+            const now = Date.now();
+            const fps = 1000 / (now - window.lastUpdateTime);
+            window.lastUpdateTime = now;
+            document.getElementById('processingFPS').textContent = fps.toFixed(1);
+        }
+        
+        // 初始化图表
+        function initChart() {
+            const ctx = document.getElementById('readingChart').getContext('2d');
+            
+            chart = new Chart(ctx, {
+                type: 'line',
+                data: {
+                    labels: [],
+                    datasets: [
+                        {
+                            label: '仪表-1 读数',
+                            data: [],
+                            borderColor: '#4f46e5',
+                            backgroundColor: 'rgba(79, 70, 229, 0.1)',
+                            tension: 0.4,
+                            fill: true
+                        },
+                        {
+                            label: '仪表-2 读数',
+                            data: [],
+                            borderColor: '#10b981',
+                            backgroundColor: 'rgba(16, 185, 129, 0.1)',
+                            tension: 0.4,
+                            fill: true
+                        }
+                    ]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    scales: {
+                        y: {
+                            beginAtZero: true,
+                            max: 100,
+                            title: {
+                                display: true,
+                                text: '读数 (%)'
+                            }
+                        },
+                        x: {
+                            title: {
+                                display: true,
+                                text: '时间'
+                            }
+                        }
+                    }
+                }
+            });
+        }
+        
+        // 更新图表数据
+        function updateChart(readings) {
+            if (!chart) return;
+            
+            const now = new Date();
+            const timeLabel = `${now.getHours()}:${now.getMinutes()}:${now.getSeconds()}`;
+            
+            // 更新标签
+            if (chart.data.labels.length >= maxDataPoints) {
+                chart.data.labels.shift();
+            }
+            chart.data.labels.push(timeLabel);
+            
+            // 更新数据
+            readings.forEach((meter, index) => {
+                if (chart.data.datasets[index]) {
+                    if (chart.data.datasets[index].data.length >= maxDataPoints) {
+                        chart.data.datasets[index].data.shift();
+                    }
+                    chart.data.datasets[index].data.push(meter.value);
+                }
+            });
+            
+            chart.update();
+        }
+        
+        // 检查预警
+        function checkAlerts(readings) {
+            const alertBox = document.getElementById('alertBox');
+            let hasAlert = false;
+            let alertHtml = '';
+            
+            readings.forEach((meter, index) => {
+                if (meter.status === 'warning') {
+                    hasAlert = true;
+                    alertHtml += `
+                        <div style="margin-bottom: 5px;">
+                            ⚠️ <strong>仪表-${index + 1}</strong> 读数 ${meter.value.toFixed(2)} 超过警戒线 (80)！
+                        </div>
+                    `;
+                }
+                if (meter.status === 'danger') {
+                    hasAlert = true;
+                    alertHtml += `
+                        <div style="margin-bottom: 5px;">
+                            🚨 <strong>仪表-${index + 1}</strong> 读数 ${meter.value.toFixed(2)} 超过危险线 (90)！请立即处理！
+                        </div>
+                    `;
+                }
+            });
+            
+            if (hasAlert) {
+                alertBox.style.display = 'block';
+                alertBox.innerHTML = alertHtml;
+                alertBox.className = readings.some(m => m.status === 'danger') 
+                    ? 'alert-box alert-danger' 
+                    : 'alert-box alert-warning';
+                
+                // 如果存在危险状态，播放警告音
+                if (readings.some(m => m.status === 'danger')) {
+                    playAlertSound();
+                }
+            } else {
+                alertBox.style.display = 'none';
+            }
+        }
+        
+        // 播放警告音
+        function playAlertSound() {
+            try {
+                const audio = new Audio('data:audio/wav;base64,UklGRigAAABXQVZFZm10IBIAAAABAAEAQB8AAEAfAAABAAgAZGF0YQ');
+                audio.play();
+            } catch (e) {
+                console.log('警告音播放失败:', e);
+            }
+        }
+        
+        // 页面加载完成后初始化
+        window.onload = function() {
+            console.log('🏭 工业仪表读数系统前端启动');
+            initSocket();
+            initChart();
+            
+            // 3秒后自动开始监控（可选）
+            setTimeout(() => {
+                if (socket && socket.connected) {
+                    startMonitoring();
+                }
+            }, 3000);
+        };
+        
+        // 页面关闭前清理
+        window.addEventListener('beforeunload', function() {
+            if (socket) {
+                socket.disconnect();
+            }
+        });
+    </script>
+</body>
+</html>
